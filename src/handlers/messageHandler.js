@@ -6,7 +6,7 @@ const { hub } = require('../websocket/hub');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function broadcastChatMessageEvent(chat, chatIdStr, senderIdStr, messageIdStr, event) {
+async function broadcastChatMessageEvent(chat, chatIdStr, senderIdStr, messageIdStr, event, extra) {
   const payload = {
     type: 'message',
     event,
@@ -14,6 +14,7 @@ async function broadcastChatMessageEvent(chat, chatIdStr, senderIdStr, messageId
     message_id: messageIdStr,
     sender_id: senderIdStr,
     timestamp: new Date().toISOString(),
+    ...(extra || {}),
   };
 
   hub.broadcastToRoom(chatIdStr, payload);
@@ -151,8 +152,11 @@ async function sendMessage(req, res) {
       }
     );
 
-    // Broadcast
-    await broadcastChatMessageEvent(chat, chatIdStr, userId, messageIdStr, 'created');
+    // Broadcast — include content preview so Sidebar can update without an extra API call
+    await broadcastChatMessageEvent(chat, chatIdStr, userId, messageIdStr, 'created', {
+      content: messageDoc.content,
+      message_type: messageDoc.message_type,
+    });
 
     return res.status(201).json({ ...messageDoc, id: messageIdStr });
   } catch (err) {

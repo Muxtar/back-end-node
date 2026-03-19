@@ -1,7 +1,9 @@
 'use strict';
 
 const { ObjectId } = require('mongodb');
+const { randomUUID } = require('crypto');
 const { getDB } = require('../database');
+const { hub } = require('../websocket/hub');
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
@@ -46,8 +48,25 @@ async function createGroup(req, res) {
 
     const insertResult = await db.collection('chats').insertOne(groupDoc);
     groupDoc._id = insertResult.insertedId;
+    const groupIdStr = insertResult.insertedId.toString();
 
-    return res.status(201).json({ ...groupDoc, id: insertResult.insertedId.toString() });
+    // Notify each member EXCEPT the creator so their sidebar shows the new group
+    for (const memberId of members) {
+      if (memberId !== userId) {
+        hub.sendToUser(memberId.toString(), {
+          type: 'new_chat',
+          chat_id: groupIdStr,
+          chat_type: 'group',
+          group_name: group_name,
+          members,
+          created_by: userId,
+          message_id: randomUUID(),
+          timestamp: now.toISOString(),
+        });
+      }
+    }
+
+    return res.status(201).json({ ...groupDoc, id: groupIdStr });
   } catch (err) {
     console.error('createGroup error:', err);
     return res.status(500).json({ error: 'Internal server error' });
@@ -137,6 +156,14 @@ async function deleteGroup(req, res) {
       return res.status(400).json({ error: 'Invalid group ID' });
     }
 
+    // Fetch group BEFORE deleting so we can notify all members
+    const group = await db.collection('chats').findOne({ _id: groupObjId, type: 'group' });
+    if (!group) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+
+    const formerMembers = Array.isArray(group.members) ? [...group.members] : [];
+
     const deleteResult = await db.collection('chats').deleteOne({
       _id: groupObjId,
       type: 'group',
@@ -144,6 +171,19 @@ async function deleteGroup(req, res) {
 
     if (deleteResult.deletedCount === 0) {
       return res.status(404).json({ error: 'Group not found' });
+    }
+
+    // Notify ALL former members (including the deleter) so they remove it from their sidebar
+    const now = new Date();
+    const notifyPayload = {
+      type: 'group_deleted',
+      chat_id: groupIdStr,
+      group_name: group.group_name || null,
+      message_id: randomUUID(),
+      timestamp: now.toISOString(),
+    };
+    for (const memberId of formerMembers) {
+      hub.sendToUser(memberId.toString(), notifyPayload);
     }
 
     return res.json({ message: 'Group deleted' });

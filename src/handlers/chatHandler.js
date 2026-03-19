@@ -1,7 +1,9 @@
 'use strict';
 
 const { ObjectId } = require('mongodb');
+const { randomUUID } = require('crypto');
 const { getDB } = require('../database');
+const { hub } = require('../websocket/hub');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -131,6 +133,24 @@ async function createChat(req, res) {
 
     const insertResult = await db.collection('chats').insertOne(chatDoc);
     chatDoc._id = insertResult.insertedId;
+    const chatIdStr = insertResult.insertedId.toString();
+    const now2 = chatDoc.created_at;
+
+    // Notify every member EXCEPT the creator so their sidebar updates in real-time
+    for (const memberId of members) {
+      if (memberId !== userId) {
+        hub.sendToUser(memberId.toString(), {
+          type: 'new_chat',
+          chat_id: chatIdStr,
+          chat_type: chatDoc.type,
+          group_name: chatDoc.group_name || null,
+          members,
+          created_by: userId,
+          message_id: randomUUID(),
+          timestamp: now2.toISOString(),
+        });
+      }
+    }
 
     return res.status(201).json(chatDoc);
   } catch (err) {
@@ -332,11 +352,26 @@ async function deleteChat(req, res) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
+    const now = new Date();
+
     // Pull userId from members
     await db.collection('chats').updateOne(
       { _id: chatObjId },
-      { $pull: { members: userId }, $set: { updated_at: new Date() } }
+      { $pull: { members: userId }, $set: { updated_at: now } }
     );
+
+    // Notify remaining members so their sidebar removes/updates this chat
+    const remaining = chat.members.filter(m => m.toString() !== userId);
+    for (const memberId of remaining) {
+      hub.sendToUser(memberId.toString(), {
+        type: 'chat_updated',
+        chat_id: chatIdStr,
+        event: 'member_left',
+        left_user_id: userId,
+        message_id: randomUUID(),
+        timestamp: now.toISOString(),
+      });
+    }
 
     return res.json({ message: 'Left chat' });
   } catch (err) {
