@@ -1,6 +1,7 @@
 'use strict';
 
 const { ObjectId } = require('mongodb');
+const { randomUUID } = require('crypto');
 const { getDB } = require('../database');
 const { hub } = require('../websocket/hub');
 
@@ -62,7 +63,7 @@ async function initiateCall(req, res) {
           call_type: callDoc.type,
           caller_id: userId,
           status: 'ringing',
-          message_id: null,
+          message_id: randomUUID(),
           timestamp: now.toISOString(),
           sender_id: userId,
         });
@@ -118,7 +119,7 @@ async function answerCall(req, res) {
       caller_id: call.caller_id,
       answered_by: userId,
       answered_at: now.toISOString(),
-      message_id: null,
+      message_id: randomUUID(),
       timestamp: now.toISOString(),
       sender_id: userId,
     });
@@ -164,7 +165,7 @@ async function endCall(req, res) {
       chat_id: call.chat_id,
       call_type: call.type,
       status: 'ended',
-      message_id: null,
+      message_id: randomUUID(),
       timestamp: now.toISOString(),
     };
 
@@ -211,7 +212,7 @@ function startCallTimeoutChecker() {
           call_type: call.type,
           status: 'ended',
           reason: 'timeout',
-          message_id: null,
+          message_id: randomUUID(),
           timestamp: now.toISOString(),
         };
 
