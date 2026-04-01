@@ -22,7 +22,11 @@ async function main() {
   const app = express();
 
   // ── Middleware ─────────────────────────────────────────────────────────────
-  app.use(helmet({ contentSecurityPolicy: false })); // Security headers
+  app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allow <img>/<video>/<audio> from other origins
+    crossOriginEmbedderPolicy: false, // Don't require COEP (breaks cross-origin media loading)
+  }));
   app.use(createCorsMiddleware());
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));

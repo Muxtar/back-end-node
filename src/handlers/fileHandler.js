@@ -77,9 +77,14 @@ async function serveFile(req, res) {
       return res.status(404).json({ error: 'File not found' });
     }
 
+    // Allow cross-origin loading (frontend may be on a different domain)
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
     const ext = path.extname(filename).toLowerCase();
     if (IMAGE_EXTENSIONS.has(ext)) {
       res.setHeader('Content-Disposition', 'inline');
+      res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache images 24h
     } else {
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     }
