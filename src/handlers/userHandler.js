@@ -133,6 +133,11 @@ async function getNearbyUsers(req, res) {
     const currentUser = await db.collection('users').findOne({ _id: userIDObj });
     if (!currentUser) return res.status(404).json({ error: 'User not found' });
 
+    // Kullanıcının konumu yoksa boş liste dön (crash yerine)
+    if (!currentUser.location || currentUser.location.latitude == null || currentUser.location.longitude == null) {
+      return res.status(200).json([]);
+    }
+
     let radius = 10.0;
     if (req.query.radius) {
       const parsed = parseFloat(req.query.radius);
@@ -146,14 +151,26 @@ async function getNearbyUsers(req, res) {
     }
 
     const allUsers = await db.collection('users').find(filter).toArray();
-    const nearbyUsers = allUsers.filter((u) => {
-      if (!u.location) return false;
+    const nearbyUsers = [];
+
+    for (const u of allUsers) {
+      if (!u.location || u.location.latitude == null || u.location.longitude == null) continue;
+
       const dist = calculateDistance(
         currentUser.location.latitude, currentUser.location.longitude,
         u.location.latitude, u.location.longitude
       );
-      return dist <= radius;
-    });
+
+      if (dist <= radius) {
+        // Hassas verileri temizle, distance alanını ekle
+        const { password, ...safeUser } = u;
+        safeUser.distance = Math.round(dist * 1000) / 1000; // 3 ondalık basamak
+        nearbyUsers.push(safeUser);
+      }
+    }
+
+    // Mesafeye göre sırala (en yakın önce)
+    nearbyUsers.sort((a, b) => a.distance - b.distance);
 
     return res.status(200).json(nearbyUsers);
   } catch (err) {
