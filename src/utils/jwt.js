@@ -10,10 +10,11 @@ function getSecret() {
 }
 
 function generateToken(userId) {
+  const expiration = process.env.JWT_EXPIRATION || '24h';
   return jwt.sign(
     { user_id: userId.toString() },
     getSecret(),
-    { expiresIn: '24h', algorithm: 'HS256' }
+    { expiresIn: expiration, algorithm: 'HS256' }
   );
 }
 

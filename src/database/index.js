@@ -25,6 +25,10 @@ async function initialize(cfg) {
       db = client.db(cfg.mongodbName);
       console.log('✅ MongoDB connected successfully');
       console.log(`📦 Using database: ${cfg.mongodbName}`);
+
+      // Create indexes (idempotent — safe to run on every startup)
+      await ensureIndexes(db);
+
       return db;
     } catch (err) {
       lastErr = err;
@@ -40,6 +44,33 @@ async function initialize(cfg) {
   console.error('❌ ERROR: Failed to connect to MongoDB after', maxRetries, 'attempts');
   console.error('Error:', lastErr?.message);
   process.exit(1);
+}
+
+async function ensureIndexes(database) {
+  try {
+    await Promise.all([
+      database.collection('users').createIndex({ phone_number: 1 }, { unique: true, sparse: true }),
+      database.collection('users').createIndex({ username: 1 }),
+      database.collection('chats').createIndex({ members: 1 }),
+      database.collection('messages').createIndex({ chat_id: 1, created_at: -1 }),
+      database.collection('contacts').createIndex({ user_id: 1, contact_id: 1 }),
+      database.collection('stories').createIndex({ expires_at: 1 }),
+      database.collection('stories').createIndex({ user_id: 1 }),
+      database.collection('likes').createIndex({ story_id: 1, user_id: 1 }),
+      database.collection('likes').createIndex({ product_id: 1, user_id: 1 }),
+      database.collection('likes').createIndex({ comment_id: 1, user_id: 1 }),
+      database.collection('story_comments').createIndex({ story_id: 1 }),
+      database.collection('notifications').createIndex({ user_id: 1, created_at: -1 }),
+      database.collection('products').createIndex({ owner_id: 1 }),
+      database.collection('products').createIndex({ created_at: -1 }),
+      database.collection('product_views').createIndex({ product_id: 1, user_id: 1 }, { unique: true }),
+      database.collection('verification_codes').createIndex({ phone_number: 1 }),
+      database.collection('verification_codes').createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 }),
+    ]);
+    console.log('📇 Database indexes ensured');
+  } catch (err) {
+    console.warn('⚠️ Index creation warning (non-fatal):', err.message);
+  }
 }
 
 function getDB() {

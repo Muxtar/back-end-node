@@ -126,6 +126,13 @@ function setupWebSocket(server) {
               break;
             }
 
+            // Verify sender is a member of this call
+            const isMember = call.members.some(m => m.toString() === userId.toString());
+            if (!isMember) {
+              console.warn(`⚠️ ${type} relay: userId=${userId} is NOT a member of call ${callId}`);
+              break;
+            }
+
             // Build flat relay payload (fields at root level, matching frontend expectations)
             const relayPayload = {
               type,

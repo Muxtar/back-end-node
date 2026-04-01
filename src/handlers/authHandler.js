@@ -50,9 +50,10 @@ async function register(req, res) {
     const existing = await db.collection('users').findOne({ phone_number });
     if (existing) return res.status(409).json({ error: 'User already exists' });
 
-    // Hash password if provided (for future use)
+    // Hash password if provided
+    let hashedPassword = null;
     if (password) {
-      await bcrypt.hash(password, 10); // stored if password field added to model
+      hashedPassword = await bcrypt.hash(password, 10);
     }
 
     const userID = new ObjectId();
@@ -63,6 +64,7 @@ async function register(req, res) {
     const user = {
       _id: userID,
       phone_number,
+      password: hashedPassword,
       qr_code: qrBase64,
       username: username || '',
       user_type: userType,
@@ -86,7 +88,9 @@ async function register(req, res) {
 
     const token = generateToken(userID.toHexString());
 
-    return res.status(201).json({ token, user, qr: qrBase64 });
+    // Don't send password hash to client
+    const { password: _pw, ...safeUser } = user;
+    return res.status(201).json({ token, user: safeUser, qr: qrBase64 });
   } catch (err) {
     console.error('register error:', err);
     return res.status(500).json({ error: 'Internal server error' });
@@ -95,15 +99,25 @@ async function register(req, res) {
 
 async function login(req, res) {
   try {
-    const { phone_number } = req.body;
+    const { phone_number, password } = req.body;
     if (!phone_number) return res.status(400).json({ error: 'phone_number is required' });
 
     const db = getDB();
     const user = await db.collection('users').findOne({ phone_number });
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
+    // Verify password if user has one set
+    if (user.password) {
+      if (!password) return res.status(401).json({ error: 'Password is required' });
+      const valid = await bcrypt.compare(password, user.password);
+      if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Don't send password hash to client
+    const { password: _, ...safeUser } = user;
+
     const token = generateToken(user._id.toHexString());
-    return res.status(200).json({ token, user });
+    return res.status(200).json({ token, user: safeUser });
   } catch (err) {
     console.error('login error:', err);
     return res.status(500).json({ error: 'Internal server error' });

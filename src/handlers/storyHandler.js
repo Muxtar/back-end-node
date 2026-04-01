@@ -94,7 +94,35 @@ async function getStoryFeed(req, res) {
       expires_at: { $gt: now },
     }).sort({ created_at: -1 }).toArray();
 
-    // Group by user_id
+    if (stories.length === 0) return res.json({ feed: [] });
+
+    // ── Batch lookups (avoid N+1) ──────────────────────────────────────────
+    // 1) Batch user lookup
+    const uniqueUserIds = [...new Set(stories.map(s => s.user_id))];
+    const userObjIds = uniqueUserIds.map(uid => { try { return new ObjectId(uid); } catch { return null; } }).filter(Boolean);
+    const usersArr = await db.collection('users').find(
+      { _id: { $in: userObjIds } },
+      { projection: { _id: 1, username: 1, avatar: 1 } }
+    ).toArray();
+    const usersMap = new Map(usersArr.map(u => [u._id.toString(), u]));
+
+    // 2) Batch product lookup for product stories
+    const productIds = stories.filter(s => s.product_id).map(s => { try { return new ObjectId(s.product_id); } catch { return null; } }).filter(Boolean);
+    const productsMap = new Map();
+    if (productIds.length > 0) {
+      const prods = await db.collection('products').find({ _id: { $in: productIds } }).toArray();
+      prods.forEach(p => productsMap.set(p._id.toString(), p));
+    }
+
+    // 3) Batch like/dislike lookup for current user
+    const storyIdStrs = stories.map(s => s._id.toString());
+    const userReactions = await db.collection('likes').find({
+      story_id: { $in: storyIdStrs },
+      user_id: userId,
+    }).toArray();
+    const reactionMap = new Map(userReactions.map(r => [r.story_id, r.type]));
+
+    // ── Group by user_id ───────────────────────────────────────────────────
     const userGroupMap = new Map();
     for (const story of stories) {
       const uid = story.user_id;
@@ -104,27 +132,30 @@ async function getStoryFeed(req, res) {
 
     const feed = [];
     for (const [uid, userStories] of userGroupMap) {
-      let userInfo = null;
-      try {
-        const user = await db.collection('users').findOne(
-          { _id: new ObjectId(uid) },
-          { projection: { _id: 1, username: 1, avatar: 1 } }
-        );
-        if (user) {
-          userInfo = { id: user._id.toString(), username: user.username, avatar: user.avatar };
+      const userDoc = usersMap.get(uid);
+      const userInfo = userDoc
+        ? { id: userDoc._id.toString(), username: userDoc.username, avatar: userDoc.avatar }
+        : null;
+
+      const enrichedStories = userStories.map(story => {
+        const storyIdStr = story._id.toString();
+        const enriched = { ...story, id: storyIdStr };
+
+        // Attach product
+        if (story.product_id) {
+          const product = productsMap.get(story.product_id.toString ? story.product_id.toString() : story.product_id);
+          if (product) enriched.product = { ...product, id: product._id.toString() };
         }
-      } catch (_) {}
 
-      const enrichedStories = [];
-      for (const story of userStories) {
-        enrichedStories.push(await enrichStory(db, story, userId));
-      }
+        // Attach reaction state
+        const reaction = reactionMap.get(storyIdStr);
+        enriched.is_liked = reaction === 'like';
+        enriched.is_disliked = reaction === 'dislike';
 
-      feed.push({
-        user_id: uid,
-        user_info: userInfo,
-        stories: enrichedStories,
+        return enriched;
       });
+
+      feed.push({ user_id: uid, user_info: userInfo, stories: enrichedStories });
     }
 
     return res.json({ feed });
@@ -322,7 +353,8 @@ async function addStoryComment(req, res) {
     const commentDoc = {
       story_id: storyIdStr,
       user_id: userId,
-      user_info: userInfo,
+      user_name: userInfo?.username || 'User',
+      user_avatar: userInfo?.avatar || null,
       text,
       created_at: now,
     };
@@ -347,11 +379,36 @@ async function getStoryComments(req, res) {
     const db = getDB();
     const storyIdStr = req.params.story_id;
 
-    const comments = await db.collection('story_comments').find({
+    const rawComments = await db.collection('story_comments').find({
       story_id: storyIdStr,
     }).sort({ created_at: 1 }).toArray();
 
-    return res.json({ comments: comments.map(c => ({ ...c, id: c._id.toString() })) });
+    // Enrich: ensure every comment has user_name & user_avatar
+    const comments = [];
+    for (const c of rawComments) {
+      const out = { ...c, id: c._id.toString() };
+      // Backwards-compat: old docs stored user_info instead of flat fields
+      if (!out.user_name && c.user_info) {
+        out.user_name = c.user_info.username || 'User';
+        out.user_avatar = c.user_info.avatar || null;
+      }
+      if (!out.user_name && c.user_id) {
+        try {
+          const u = await db.collection('users').findOne(
+            { _id: new ObjectId(c.user_id) },
+            { projection: { username: 1, avatar: 1 } }
+          );
+          if (u) {
+            out.user_name = u.username || 'User';
+            out.user_avatar = u.avatar || null;
+          }
+        } catch (_) {}
+      }
+      if (!out.user_name) out.user_name = 'User';
+      comments.push(out);
+    }
+
+    return res.json({ comments });
   } catch (err) {
     console.error('getStoryComments error:', err);
     return res.status(500).json({ error: 'Internal server error' });
@@ -379,6 +436,10 @@ async function deleteStory(req, res) {
     if (deleteResult.deletedCount === 0) {
       return res.status(404).json({ error: 'Story not found or not owned by you' });
     }
+
+    // Clean up related reactions and comments
+    await db.collection('likes').deleteMany({ story_id: storyIdStr });
+    await db.collection('story_comments').deleteMany({ story_id: storyIdStr });
 
     return res.json({ message: 'Story deleted' });
   } catch (err) {

@@ -97,13 +97,25 @@ async function getProduct(req, res) {
       return res.status(400).json({ error: 'Invalid product ID' });
     }
 
-    const product = await db.collection('products').findOneAndUpdate(
-      { _id: productObjId },
-      { $inc: { view_count: 1 } },
-      { returnDocument: 'after' }
-    );
-
+    const product = await db.collection('products').findOne({ _id: productObjId });
     if (!product) return res.status(404).json({ error: 'Product not found' });
+
+    // Deduplicate view count: only increment once per user per 24h
+    const viewerId = req.userId || req.ip;
+    try {
+      await db.collection('product_views').insertOne({
+        product_id: productIdStr,
+        user_id: viewerId,
+        viewed_at: new Date(),
+      });
+      // Insert succeeded → first view from this user, increment count
+      await db.collection('products').updateOne(
+        { _id: productObjId },
+        { $inc: { view_count: 1 } }
+      );
+    } catch (_) {
+      // Duplicate key → user already viewed, skip increment
+    }
 
     return res.json({ ...product, id: product._id.toString() });
   } catch (err) {

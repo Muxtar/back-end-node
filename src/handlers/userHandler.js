@@ -85,8 +85,17 @@ async function getDevices(req, res) {
 
 async function updateMe(req, res) {
   try {
-    const updateData = req.body;
-    updateData.updated_at = new Date();
+    const ALLOWED_FIELDS = new Set([
+      'username', 'first_name', 'last_name', 'avatar', 'bio',
+      'hide_phone_number', 'profession', 'social_accounts',
+      'location', 'active_devices',
+    ]);
+
+    const raw = req.body || {};
+    const updateData = { updated_at: new Date() };
+    for (const key of Object.keys(raw)) {
+      if (ALLOWED_FIELDS.has(key)) updateData[key] = raw[key];
+    }
 
     const db = getDB();
     await db.collection('users').updateOne(

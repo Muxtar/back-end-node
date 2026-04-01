@@ -523,6 +523,14 @@ async function pinMessage(req, res) {
       return res.status(400).json({ error: 'Invalid chat_id' });
     }
 
+    // For group/channel chats, verify user is admin
+    const chat = await db.collection('chats').findOne({ _id: chatObjId });
+    if (chat && (chat.type === 'group' || chat.type === 'channel')) {
+      const admins = Array.isArray(chat.admins) ? chat.admins : [];
+      const isAdmin = admins.some(a => (a.user_id || a.userId || '').toString() === userId);
+      if (!isAdmin) return res.status(403).json({ error: 'Only admins can pin messages' });
+    }
+
     const now = new Date();
 
     await db.collection('messages').updateOne(

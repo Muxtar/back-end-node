@@ -115,6 +115,7 @@ async function getGroup(req, res) {
 async function updateGroup(req, res) {
   try {
     const db = getDB();
+    const userId = req.userId;
     const groupIdStr = req.params.group_id;
     const updates = req.body || {};
 
@@ -124,6 +125,14 @@ async function updateGroup(req, res) {
     } catch (_) {
       return res.status(400).json({ error: 'Invalid group ID' });
     }
+
+    // Verify user is admin or owner
+    const group = await db.collection('chats').findOne({ _id: groupObjId, type: 'group' });
+    if (!group) return res.status(404).json({ error: 'Group not found' });
+
+    const admins = Array.isArray(group.admins) ? group.admins : [];
+    const isAdmin = admins.some(a => (a.user_id || a.userId || '').toString() === userId);
+    if (!isAdmin) return res.status(403).json({ error: 'Only admins can update the group' });
 
     const setFields = { ...updates, updated_at: new Date() };
     // Remove protected fields
@@ -147,6 +156,7 @@ async function updateGroup(req, res) {
 async function deleteGroup(req, res) {
   try {
     const db = getDB();
+    const userId = req.userId;
     const groupIdStr = req.params.group_id;
 
     let groupObjId;
@@ -162,6 +172,11 @@ async function deleteGroup(req, res) {
       return res.status(404).json({ error: 'Group not found' });
     }
 
+    // Only owner can delete
+    const admins = Array.isArray(group.admins) ? group.admins : [];
+    const isOwner = admins.some(a => (a.user_id || a.userId || '').toString() === userId && a.role === 'owner');
+    if (!isOwner) return res.status(403).json({ error: 'Only the group owner can delete the group' });
+
     const formerMembers = Array.isArray(group.members) ? [...group.members] : [];
 
     const deleteResult = await db.collection('chats').deleteOne({
@@ -172,6 +187,9 @@ async function deleteGroup(req, res) {
     if (deleteResult.deletedCount === 0) {
       return res.status(404).json({ error: 'Group not found' });
     }
+
+    // Cascade: delete all messages belonging to this group
+    await db.collection('messages').deleteMany({ chat_id: groupIdStr });
 
     // Notify ALL former members (including the deleter) so they remove it from their sidebar
     const now = new Date();
