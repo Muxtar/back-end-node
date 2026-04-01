@@ -152,10 +152,24 @@ async function sendMessage(req, res) {
       }
     );
 
-    // Broadcast — include content preview so Sidebar can update without an extra API call
+    // Broadcast — include ALL message fields so the recipient renders the full message
+    // (images, videos, audio, files, location, contact, poll, etc.) without an extra API call
     await broadcastChatMessageEvent(chat, chatIdStr, userId, messageIdStr, 'created', {
       content: messageDoc.content,
       message_type: messageDoc.message_type,
+      file_url: messageDoc.file_url,
+      file_name: messageDoc.file_name,
+      file_size: messageDoc.file_size,
+      thumbnail_url: messageDoc.thumbnail_url,
+      duration: messageDoc.duration,
+      is_anonymous: messageDoc.is_anonymous,
+      location: messageDoc.location,
+      contact: messageDoc.contact,
+      poll: messageDoc.poll,
+      reply_to_id: messageDoc.reply_to_id,
+      is_pinned: messageDoc.is_pinned,
+      reactions: messageDoc.reactions,
+      created_at: messageDoc.created_at,
     });
 
     return res.status(201).json({ ...messageDoc, id: messageIdStr });
