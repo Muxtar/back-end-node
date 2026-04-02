@@ -201,17 +201,35 @@ async function deleteContact(req, res) {
     const userId = req.userId;
     const contactIdStr = req.params.contact_id;
 
-    let contactObjId;
+    // Try multiple strategies to find and delete the contact
+    let deleteResult = { deletedCount: 0 };
+
+    // Strategy 1: Delete by _id (contact document ID)
     try {
-      contactObjId = new ObjectId(contactIdStr);
-    } catch (_) {
-      return res.status(400).json({ error: 'Invalid contact ID' });
+      const contactObjId = new ObjectId(contactIdStr);
+      deleteResult = await db.collection('contacts').deleteOne({
+        _id: contactObjId,
+        owner_id: userId,
+      });
+    } catch (_) {}
+
+    // Strategy 2: If not found, try by user_id (the contact person's user ID)
+    if (deleteResult.deletedCount === 0) {
+      deleteResult = await db.collection('contacts').deleteOne({
+        owner_id: userId,
+        user_id: contactIdStr,
+      });
     }
 
-    const deleteResult = await db.collection('contacts').deleteOne({
-      _id: contactObjId,
-      owner_id: userId,
-    });
+    // Strategy 3: Try with ObjectId user_id match
+    if (deleteResult.deletedCount === 0) {
+      try {
+        deleteResult = await db.collection('contacts').deleteOne({
+          owner_id: userId,
+          user_id: new ObjectId(contactIdStr),
+        });
+      } catch (_) {}
+    }
 
     if (deleteResult.deletedCount === 0) {
       return res.status(404).json({ error: 'Contact not found' });
