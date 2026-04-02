@@ -260,12 +260,13 @@ async function blockUser(req, res) {
     const { user_id } = req.body;
     if (!user_id) return res.status(400).json({ error: 'user_id required' });
 
-    let blockedObj;
-    try { blockedObj = new ObjectId(user_id); } catch { return res.status(400).json({ error: 'Invalid user_id' }); }
+    // Validate user_id format
+    try { new ObjectId(user_id); } catch { return res.status(400).json({ error: 'Invalid user_id' }); }
 
+    // Store as string for consistent comparison throughout the app
     await db.collection('user_settings').updateOne(
       { user_id: userIdObj },
-      { $addToSet: { blocked_users: blockedObj }, $set: { updated_at: new Date() } },
+      { $addToSet: { blocked_users: user_id.toString() }, $set: { updated_at: new Date() } },
       { upsert: true }
     );
     return res.status(200).json({ message: 'User blocked' });
@@ -278,12 +279,13 @@ async function unblockUser(req, res) {
   try {
     const db = getDB();
     const userIdObj = new ObjectId(req.userId);
-    let blockedObj;
-    try { blockedObj = new ObjectId(req.params.user_id); } catch { return res.status(400).json({ error: 'Invalid user_id' }); }
+    const blockedUserId = req.params.user_id;
+    try { new ObjectId(blockedUserId); } catch { return res.status(400).json({ error: 'Invalid user_id' }); }
 
+    // Pull both string and ObjectId variants for backwards compatibility
     await db.collection('user_settings').updateOne(
       { user_id: userIdObj },
-      { $pull: { blocked_users: blockedObj }, $set: { updated_at: new Date() } }
+      { $pull: { blocked_users: { $in: [blockedUserId, new ObjectId(blockedUserId)] } }, $set: { updated_at: new Date() } }
     );
     return res.status(200).json({ message: 'User unblocked' });
   } catch (err) {

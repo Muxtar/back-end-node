@@ -48,48 +48,45 @@ async function getComments(req, res) {
       product_id: productIdStr,
     }).sort({ created_at: 1 }).toArray();
 
-    // Enrich with user info and like/dislike status
-    const enrichedComments = [];
-    for (const comment of comments) {
-      const commentIdStr = comment._id.toString();
-      let userInfo = null;
+    // Batch enrich: users + likes (avoids N+1)
+    const commentIdStrs = comments.map(c => c._id.toString());
+    const userIdStrs = [...new Set(comments.map(c => c.user_id).filter(Boolean))];
 
-      try {
-        const user = await db.collection('users').findOne(
-          { _id: new ObjectId(comment.user_id) },
-          { projection: { _id: 1, username: 1, avatar: 1 } }
-        );
-        if (user) {
-          userInfo = { id: user._id.toString(), username: user.username, avatar: user.avatar };
-        }
-      } catch (_) {}
+    // Batch user lookup
+    const userObjIds = userIdStrs.map(uid => { try { return new ObjectId(uid); } catch { return null; } }).filter(Boolean);
+    const usersMap = new Map();
+    if (userObjIds.length > 0) {
+      const users = await db.collection('users').find(
+        { _id: { $in: userObjIds } },
+        { projection: { _id: 1, username: 1, avatar: 1 } }
+      ).toArray();
+      users.forEach(u => usersMap.set(u._id.toString(), { id: u._id.toString(), username: u.username, avatar: u.avatar }));
+    }
 
-      let isLiked = false;
-      let isDisliked = false;
-      if (userId) {
-        const like = await db.collection('likes').findOne({
-          comment_id: commentIdStr,
-          user_id: userId,
-          type: 'like',
-        });
-        isLiked = !!like;
-
-        const dislike = await db.collection('likes').findOne({
-          comment_id: commentIdStr,
-          user_id: userId,
-          type: 'dislike',
-        });
-        isDisliked = !!dislike;
-      }
-
-      enrichedComments.push({
-        ...comment,
-        id: commentIdStr,
-        user: userInfo,
-        is_liked: isLiked,
-        is_disliked: isDisliked,
+    // Batch like/dislike lookup
+    const likedSet = new Set();
+    const dislikedSet = new Set();
+    if (userId && commentIdStrs.length > 0) {
+      const userReactions = await db.collection('likes').find({
+        comment_id: { $in: commentIdStrs },
+        user_id: userId,
+      }).toArray();
+      userReactions.forEach(r => {
+        if (r.type === 'like') likedSet.add(r.comment_id);
+        else if (r.type === 'dislike') dislikedSet.add(r.comment_id);
       });
     }
+
+    const enrichedComments = comments.map(comment => {
+      const cid = comment._id.toString();
+      return {
+        ...comment,
+        id: cid,
+        user: usersMap.get(comment.user_id) || null,
+        is_liked: likedSet.has(cid),
+        is_disliked: dislikedSet.has(cid),
+      };
+    });
 
     // Build reply tree: top-level comments + their replies
     const topLevel = enrichedComments.filter(c => !c.parent_id);
@@ -134,6 +131,20 @@ async function deleteComment(req, res) {
     }
 
     await db.collection('comments').deleteOne({ _id: commentObjId });
+
+    // Cascade: clean up likes, dislikes, spam reports for this comment
+    await db.collection('likes').deleteMany({ comment_id: commentIdStr });
+    await db.collection('spam_reports').deleteMany({ comment_id: commentIdStr });
+    // Also delete child replies
+    await db.collection('comments').deleteMany({ parent_id: commentIdStr });
+
+    // Decrement comment count on product
+    if (comment.product_id) {
+      await db.collection('products').updateOne(
+        { _id: new ObjectId(comment.product_id) },
+        { $inc: { comment_count: -1 } }
+      );
+    }
 
     return res.json({ message: 'Comment deleted' });
   } catch (err) {

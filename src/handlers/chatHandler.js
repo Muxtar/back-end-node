@@ -217,6 +217,10 @@ async function getMessages(req, res) {
     const chat = await db.collection('chats').findOne({ _id: chatObjId });
     if (!chat) return res.status(404).json({ error: 'Chat not found' });
 
+    // Check membership
+    const isMember = Array.isArray(chat.members) && chat.members.some(m => m.toString() === userId);
+    if (!isMember) return res.status(403).json({ error: 'Not a member of this chat' });
+
     const messages = await db.collection('messages').find({
       chat_id: chatIdStr,
       is_deleted: { $ne: true },

@@ -66,6 +66,10 @@ async function ensureIndexes(database) {
       database.collection('product_views').createIndex({ product_id: 1, user_id: 1 }, { unique: true }),
       database.collection('verification_codes').createIndex({ phone_number: 1 }),
       database.collection('verification_codes').createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 }),
+      // TTL index: auto-delete typing indicators after 10 seconds
+      database.collection('typing_indicators').createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 }),
+      // TTL index: auto-delete expired stories after 1 hour past expiry
+      database.collection('stories').createIndex({ expires_at: 1 }, { expireAfterSeconds: 3600 }),
     ]);
     console.log('📇 Database indexes ensured');
   } catch (err) {

@@ -132,6 +132,11 @@ async function recordView(req, res) {
     const channel = await db.collection('chats').findOne({ _id: channelObjId, type: 'channel' });
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
+    // Only members can record views
+    const userId = req.userId;
+    const isMember = Array.isArray(channel.members) && channel.members.some(m => m.toString() === userId);
+    if (!isMember) return res.status(403).json({ error: 'Not subscribed to this channel' });
+
     const viewKey = `view_count.${messageIdStr}`;
     await db.collection('chats').updateOne(
       { _id: channelObjId },

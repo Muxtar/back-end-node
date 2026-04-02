@@ -214,24 +214,27 @@ async function deleteGroup(req, res) {
 async function addMember(req, res) {
   try {
     const db = getDB();
+    const userId = req.userId;
     const groupIdStr = req.params.group_id;
     const { member_id } = req.body || {};
 
     if (!member_id) return res.status(400).json({ error: 'member_id is required' });
 
     let groupObjId;
-    try {
-      groupObjId = new ObjectId(groupIdStr);
-    } catch (_) {
+    try { groupObjId = new ObjectId(groupIdStr); } catch (_) {
       return res.status(400).json({ error: 'Invalid group ID' });
     }
 
+    // Only admins/owner can add members
+    const group = await db.collection('chats').findOne({ _id: groupObjId, type: 'group' });
+    if (!group) return res.status(404).json({ error: 'Group not found' });
+    const admins = Array.isArray(group.admins) ? group.admins : [];
+    const isAdmin = admins.some(a => (a.user_id || a.userId || '').toString() === userId);
+    if (!isAdmin) return res.status(403).json({ error: 'Only admins can add members' });
+
     await db.collection('chats').updateOne(
       { _id: groupObjId, type: 'group' },
-      {
-        $addToSet: { members: member_id.toString() },
-        $set: { updated_at: new Date() },
-      }
+      { $addToSet: { members: member_id.toString() }, $set: { updated_at: new Date() } }
     );
 
     return res.json({ message: 'Member added' });
@@ -244,22 +247,28 @@ async function addMember(req, res) {
 async function removeMember(req, res) {
   try {
     const db = getDB();
+    const userId = req.userId;
     const groupIdStr = req.params.group_id;
     const memberIdStr = req.params.member_id;
 
     let groupObjId;
-    try {
-      groupObjId = new ObjectId(groupIdStr);
-    } catch (_) {
+    try { groupObjId = new ObjectId(groupIdStr); } catch (_) {
       return res.status(400).json({ error: 'Invalid group ID' });
+    }
+
+    // Only admins/owner can remove members (or user removing themselves)
+    const group = await db.collection('chats').findOne({ _id: groupObjId, type: 'group' });
+    if (!group) return res.status(404).json({ error: 'Group not found' });
+    const isSelf = memberIdStr === userId;
+    if (!isSelf) {
+      const admins = Array.isArray(group.admins) ? group.admins : [];
+      const isAdmin = admins.some(a => (a.user_id || a.userId || '').toString() === userId);
+      if (!isAdmin) return res.status(403).json({ error: 'Only admins can remove members' });
     }
 
     await db.collection('chats').updateOne(
       { _id: groupObjId, type: 'group' },
-      {
-        $pull: { members: memberIdStr },
-        $set: { updated_at: new Date() },
-      }
+      { $pull: { members: memberIdStr }, $set: { updated_at: new Date() } }
     );
 
     return res.json({ message: 'Member removed' });

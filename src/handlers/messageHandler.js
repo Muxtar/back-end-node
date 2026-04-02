@@ -590,6 +590,14 @@ async function unpinMessage(req, res) {
       return res.status(400).json({ error: 'Invalid chat_id' });
     }
 
+    // Admin check for group/channel chats (same as pinMessage)
+    const chat = await db.collection('chats').findOne({ _id: chatObjId });
+    if (chat && (chat.type === 'group' || chat.type === 'channel')) {
+      const admins = Array.isArray(chat.admins) ? chat.admins : [];
+      const isAdmin = admins.some(a => (a.user_id || a.userId || '').toString() === userId);
+      if (!isAdmin) return res.status(403).json({ error: 'Only admins can unpin messages' });
+    }
+
     const now = new Date();
 
     await db.collection('messages').updateOne(
@@ -675,12 +683,14 @@ async function searchMessages(req, res) {
 
     if (!q) return res.status(400).json({ error: 'q query param is required' });
 
+    // Escape regex special chars to prevent ReDoS
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const filter = {
       is_deleted: { $ne: true },
       deleted_for: { $nin: [userId] },
       $or: [
-        { content: { $regex: q, $options: 'i' } },
-        { file_name: { $regex: q, $options: 'i' } },
+        { content: { $regex: escaped, $options: 'i' } },
+        { file_name: { $regex: escaped, $options: 'i' } },
       ],
     };
 

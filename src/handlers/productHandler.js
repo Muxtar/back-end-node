@@ -60,23 +60,22 @@ async function getProducts(req, res) {
       .limit(limit)
       .toArray();
 
-    // Check if current user liked each product
-    const result = [];
-    for (const product of products) {
-      const productIdStr = product._id.toString();
-      let isLiked = false;
-
-      if (userId) {
-        const like = await db.collection('likes').findOne({
-          product_id: productIdStr,
-          user_id: userId,
-          type: 'like',
-        });
-        isLiked = !!like;
-      }
-
-      result.push({ ...product, id: productIdStr, is_liked: isLiked });
+    // Batch check likes for all products in one query (avoids N+1)
+    const productIdStrs = products.map(p => p._id.toString());
+    const likedSet = new Set();
+    if (userId && productIdStrs.length > 0) {
+      const userLikes = await db.collection('likes').find({
+        product_id: { $in: productIdStrs },
+        user_id: userId,
+        type: 'like',
+      }).toArray();
+      userLikes.forEach(l => likedSet.add(l.product_id));
     }
+
+    const result = products.map(product => {
+      const pid = product._id.toString();
+      return { ...product, id: pid, is_liked: likedSet.has(pid) };
+    });
 
     return res.json({ products: result, total, page, limit });
   } catch (err) {
@@ -100,21 +99,19 @@ async function getProduct(req, res) {
     const product = await db.collection('products').findOne({ _id: productObjId });
     if (!product) return res.status(404).json({ error: 'Product not found' });
 
-    // Deduplicate view count: only increment once per user per 24h
-    const viewerId = req.userId || req.ip;
-    try {
-      await db.collection('product_views').insertOne({
-        product_id: productIdStr,
-        user_id: viewerId,
-        viewed_at: new Date(),
-      });
-      // Insert succeeded → first view from this user, increment count
+    // Deduplicate view count: atomic upsert prevents race conditions
+    const viewerId = req.userId || req.socket?.remoteAddress || 'anonymous';
+    const viewResult = await db.collection('product_views').updateOne(
+      { product_id: productIdStr, user_id: viewerId },
+      { $setOnInsert: { product_id: productIdStr, user_id: viewerId, viewed_at: new Date() } },
+      { upsert: true }
+    );
+    // Only increment if this was a new insert (not existing)
+    if (viewResult.upsertedCount > 0) {
       await db.collection('products').updateOne(
         { _id: productObjId },
         { $inc: { view_count: 1 } }
       );
-    } catch (_) {
-      // Duplicate key → user already viewed, skip increment
     }
 
     return res.json({ ...product, id: product._id.toString() });

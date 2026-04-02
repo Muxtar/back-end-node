@@ -12,6 +12,15 @@ async function createProposal(req, res) {
     const { receiver_id, message, is_anonymous } = req.body || {};
 
     if (!receiver_id) return res.status(400).json({ error: 'receiver_id is required' });
+    if (receiver_id === userId) return res.status(400).json({ error: 'Cannot send proposal to yourself' });
+
+    // Verify receiver exists
+    let receiverObjId;
+    try { receiverObjId = new ObjectId(receiver_id); } catch (_) {
+      return res.status(400).json({ error: 'Invalid receiver_id' });
+    }
+    const receiver = await db.collection('users').findOne({ _id: receiverObjId });
+    if (!receiver) return res.status(404).json({ error: 'Receiver user not found' });
 
     const now = new Date();
     const proposalDoc = {

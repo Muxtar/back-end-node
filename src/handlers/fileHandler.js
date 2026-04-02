@@ -60,12 +60,13 @@ async function serveFile(req, res) {
   try {
     const filename = req.params.filename;
 
-    // Prevent path traversal
-    if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    // Prevent path traversal — use only basename and block encoded characters
+    if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')
+        || filename.includes('%2e') || filename.includes('%2f') || filename.includes('%5c')) {
       return res.status(400).json({ error: 'Invalid filename' });
     }
-
-    const filePath = path.join(uploadDir, filename);
+    const safeFilename = path.basename(filename);
+    const filePath = path.join(uploadDir, safeFilename);
 
     // Verify the resolved path is still within uploadDir
     const resolved = path.resolve(filePath);
