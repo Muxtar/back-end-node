@@ -60,7 +60,7 @@ async function sendMessage(req, res) {
     const chat = await db.collection('chats').findOne({ _id: chatObjId });
     if (!chat) return res.status(404).json({ error: 'Chat not found' });
 
-    if (!Array.isArray(chat.members) || !chat.members.includes(userId)) {
+    if (!Array.isArray(chat.members) || !chat.members.some(m => m.toString() === userId)) {
       return res.status(403).json({ error: 'Not a member of this chat' });
     }
 
@@ -314,7 +314,7 @@ async function forwardMessage(req, res) {
 
       const chat = await db.collection('chats').findOne({ _id: chatObjId });
       if (!chat) continue;
-      if (!Array.isArray(chat.members) || !chat.members.includes(userId)) continue;
+      if (!Array.isArray(chat.members) || !chat.members.some(m => m.toString() === userId)) continue;
 
       const forwardedDoc = {
         chat_id: chatIdStr,
@@ -469,7 +469,7 @@ async function markAsRead(req, res) {
     const chat = await db.collection('chats').findOne({ _id: chatObjId });
     if (!chat) return res.status(404).json({ error: 'Chat not found' });
 
-    if (!Array.isArray(chat.members) || !chat.members.includes(userId)) {
+    if (!Array.isArray(chat.members) || !chat.members.some(m => m.toString() === userId)) {
       return res.status(403).json({ error: 'Not a member of this chat' });
     }
 
@@ -541,7 +541,7 @@ async function pinMessage(req, res) {
     const chat = await db.collection('chats').findOne({ _id: chatObjId });
     if (chat && (chat.type === 'group' || chat.type === 'channel')) {
       const admins = Array.isArray(chat.admins) ? chat.admins : [];
-      const isAdmin = admins.some(a => (a.user_id || a.userId || '').toString() === userId);
+      const isAdmin = admins.some(a => (a && (a.user_id || a.userId || '')).toString() === userId);
       if (!isAdmin) return res.status(403).json({ error: 'Only admins can pin messages' });
     }
 
@@ -594,7 +594,7 @@ async function unpinMessage(req, res) {
     const chat = await db.collection('chats').findOne({ _id: chatObjId });
     if (chat && (chat.type === 'group' || chat.type === 'channel')) {
       const admins = Array.isArray(chat.admins) ? chat.admins : [];
-      const isAdmin = admins.some(a => (a.user_id || a.userId || '').toString() === userId);
+      const isAdmin = admins.some(a => (a && (a.user_id || a.userId || '')).toString() === userId);
       if (!isAdmin) return res.status(403).json({ error: 'Only admins can unpin messages' });
     }
 

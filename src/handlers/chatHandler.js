@@ -352,7 +352,7 @@ async function deleteChat(req, res) {
     const chat = await db.collection('chats').findOne({ _id: chatObjId });
     if (!chat) return res.status(404).json({ error: 'Chat not found' });
 
-    if (!Array.isArray(chat.members) || !chat.members.includes(userId)) {
+    if (!Array.isArray(chat.members) || !chat.members.some(m => m.toString() === userId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 

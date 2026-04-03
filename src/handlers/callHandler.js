@@ -25,7 +25,7 @@ async function initiateCall(req, res) {
     const chat = await db.collection('chats').findOne({ _id: chatObjId });
     if (!chat) return res.status(404).json({ error: 'Chat not found' });
 
-    if (!Array.isArray(chat.members) || !chat.members.includes(userId)) {
+    if (!Array.isArray(chat.members) || !chat.members.some(m => m.toString() === userId)) {
       return res.status(403).json({ error: 'Not a member of this chat' });
     }
 
@@ -93,7 +93,7 @@ async function answerCall(req, res) {
     const call = await db.collection('calls').findOne({ _id: callObjId });
     if (!call) return res.status(404).json({ error: 'Call not found' });
 
-    if (!Array.isArray(call.members) || !call.members.includes(userId)) {
+    if (!Array.isArray(call.members) || !call.members.some(m => m.toString() === userId)) {
       return res.status(403).json({ error: 'Not a member of this call' });
     }
 

@@ -64,16 +64,24 @@ async function subscribe(req, res) {
     const channel = await db.collection('chats').findOne({ _id: channelObjId, type: 'channel' });
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
-    const alreadyMember = Array.isArray(channel.members) && channel.members.includes(userId);
-
-    await db.collection('chats').updateOne(
-      { _id: channelObjId },
+    // Atomic: only increment if user was NOT already a member
+    // Use a filter that excludes existing members + $addToSet in one operation
+    const result = await db.collection('chats').updateOne(
+      { _id: channelObjId, members: { $not: { $elemMatch: { $eq: userId } } } },
       {
         $addToSet: { members: userId },
-        $inc: alreadyMember ? {} : { subscriber_count: 1 },
+        $inc: { subscriber_count: 1 },
         $set: { updated_at: new Date() },
       }
     );
+
+    // If no match (already a member), just ensure membership without incrementing
+    if (result.matchedCount === 0) {
+      await db.collection('chats').updateOne(
+        { _id: channelObjId },
+        { $addToSet: { members: userId }, $set: { updated_at: new Date() } }
+      );
+    }
 
     return res.json({ message: 'Subscribed to channel' });
   } catch (err) {
@@ -98,7 +106,7 @@ async function unsubscribe(req, res) {
     const channel = await db.collection('chats').findOne({ _id: channelObjId, type: 'channel' });
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
-    const isMember = Array.isArray(channel.members) && channel.members.includes(userId);
+    const isMember = Array.isArray(channel.members) && channel.members.some(m => m.toString() === userId);
 
     await db.collection('chats').updateOne(
       { _id: channelObjId },

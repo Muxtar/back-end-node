@@ -131,7 +131,7 @@ async function updateGroup(req, res) {
     if (!group) return res.status(404).json({ error: 'Group not found' });
 
     const admins = Array.isArray(group.admins) ? group.admins : [];
-    const isAdmin = admins.some(a => (a.user_id || a.userId || '').toString() === userId);
+    const isAdmin = admins.some(a => (a && (a.user_id || a.userId || '')).toString() === userId);
     if (!isAdmin) return res.status(403).json({ error: 'Only admins can update the group' });
 
     const setFields = { ...updates, updated_at: new Date() };
@@ -174,7 +174,7 @@ async function deleteGroup(req, res) {
 
     // Only owner can delete
     const admins = Array.isArray(group.admins) ? group.admins : [];
-    const isOwner = admins.some(a => (a.user_id || a.userId || '').toString() === userId && a.role === 'owner');
+    const isOwner = admins.some(a => (a && (a.user_id || a.userId || '')).toString() === userId && a.role === 'owner');
     if (!isOwner) return res.status(403).json({ error: 'Only the group owner can delete the group' });
 
     const formerMembers = Array.isArray(group.members) ? [...group.members] : [];
@@ -229,7 +229,7 @@ async function addMember(req, res) {
     const group = await db.collection('chats').findOne({ _id: groupObjId, type: 'group' });
     if (!group) return res.status(404).json({ error: 'Group not found' });
     const admins = Array.isArray(group.admins) ? group.admins : [];
-    const isAdmin = admins.some(a => (a.user_id || a.userId || '').toString() === userId);
+    const isAdmin = admins.some(a => (a && (a.user_id || a.userId || '')).toString() === userId);
     if (!isAdmin) return res.status(403).json({ error: 'Only admins can add members' });
 
     await db.collection('chats').updateOne(
@@ -262,7 +262,7 @@ async function removeMember(req, res) {
     const isSelf = memberIdStr === userId;
     if (!isSelf) {
       const admins = Array.isArray(group.admins) ? group.admins : [];
-      const isAdmin = admins.some(a => (a.user_id || a.userId || '').toString() === userId);
+      const isAdmin = admins.some(a => (a && (a.user_id || a.userId || '')).toString() === userId);
       if (!isAdmin) return res.status(403).json({ error: 'Only admins can remove members' });
     }
 
